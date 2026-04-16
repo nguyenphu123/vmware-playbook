@@ -1,0 +1,185 @@
+---
+# ============================================================
+# Playbook: gather_vcenter_info.yml
+# Description: Gather comprehensive information from vCenter
+#              using the vmware.vmware collection.
+# Requirements:
+#   ansible-galaxy collection install vmware.vmware
+# ============================================================
+
+- name: Gather vCenter Information
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+
+    # -------------------------------------------------------
+    # 1. vCenter / Appliance Info
+    # -------------------------------------------------------
+    - name: Get vCenter appliance system info
+      vmware.vmware.appliance_system_info:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ vcenter_validate_certs }}"
+      register: vcenter_system_info
+
+    - name: Display vCenter system info
+      ansible.builtin.debug:
+        var: vcenter_system_info
+
+    # -------------------------------------------------------
+    # 2. Datacenter List
+    # -------------------------------------------------------
+    - name: Get list of datacenters
+      vmware.vmware.datacenter_info:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ vcenter_validate_certs }}"
+      register: datacenter_info
+
+    - name: Display datacenters
+      ansible.builtin.debug:
+        msg: "Datacenter: {{ item.name }}"
+      loop: "{{ datacenter_info.datacenters }}"
+
+    # -------------------------------------------------------
+    # 3. Cluster Info
+    # -------------------------------------------------------
+    - name: Get all clusters info
+      vmware.vmware.cluster_info:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ vcenter_validate_certs }}"
+      register: cluster_info
+
+    - name: Display clusters
+      ansible.builtin.debug:
+        msg: >-
+          Cluster: {{ item.cluster_name }}
+          | HA: {{ item.enable_ha }}
+          | DRS: {{ item.enable_drs }}
+      loop: "{{ cluster_info.clusters }}"
+
+    # -------------------------------------------------------
+    # 4. ESXi Host Info
+    # -------------------------------------------------------
+    - name: Get all ESXi hosts info
+      vmware.vmware.host_info:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ vcenter_validate_certs }}"
+      register: host_info
+
+    - name: Display ESXi hosts
+      ansible.builtin.debug:
+        msg: >-
+          Host: {{ item.name }}
+          | State: {{ item.connection_state }}
+          | Power: {{ item.power_state }}
+      loop: "{{ host_info.hosts }}"
+
+    # -------------------------------------------------------
+    # 5. VM Info (all VMs)
+    # -------------------------------------------------------
+    - name: Get all VMs info
+      vmware.vmware.vm_info:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ vcenter_validate_certs }}"
+      register: vm_info
+
+    - name: Display VMs
+      ansible.builtin.debug:
+        msg: >-
+          VM: {{ item.vm_name }}
+          | Power: {{ item.power_state }}
+          | Guest OS: {{ item.guest_fullname | default('N/A') }}
+          | IPs: {{ item.ip_addresses | default([]) | join(', ') }}
+      loop: "{{ vm_info.virtual_machines }}"
+
+    # -------------------------------------------------------
+    # 6. Datastore Info
+    # -------------------------------------------------------
+    - name: Get all datastores info
+      vmware.vmware.datastore_info:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ vcenter_validate_certs }}"
+      register: datastore_info
+
+    - name: Display datastores
+      ansible.builtin.debug:
+        msg: >-
+          Datastore: {{ item.name }}
+          | Type: {{ item.type }}
+          | Capacity: {{ (item.capacity / 1073741824) | round(2) }} GB
+          | Free: {{ (item.free_space / 1073741824) | round(2) }} GB
+      loop: "{{ datastore_info.datastores }}"
+
+    # -------------------------------------------------------
+    # 7. Network / Port Group Info
+    # -------------------------------------------------------
+    - name: Get vCenter networks info
+      vmware.vmware.network_info:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ vcenter_validate_certs }}"
+      register: network_info
+
+    - name: Display networks
+      ansible.builtin.debug:
+        msg: "Network: {{ item.name }} | Type: {{ item.type }}"
+      loop: "{{ network_info.networks }}"
+
+    # -------------------------------------------------------
+    # 8. Save Summary Report to File
+    # -------------------------------------------------------
+    - name: Build summary report
+      ansible.builtin.set_fact:
+        summary_report: |
+          =============================================
+          vCenter Information Report
+          Generated: {{ ansible_date_time.iso8601 | default(lookup('pipe', 'date -u +%Y-%m-%dT%H:%M:%SZ')) }}
+          =============================================
+
+          --- Datacenters ---
+          {% for dc in datacenter_info.datacenters %}
+          - {{ dc.name }}
+          {% endfor %}
+
+          --- Clusters ---
+          {% for cl in cluster_info.clusters %}
+          - {{ cl.cluster_name }} (HA: {{ cl.enable_ha }}, DRS: {{ cl.enable_drs }})
+          {% endfor %}
+
+          --- ESXi Hosts ---
+          {% for h in host_info.hosts %}
+          - {{ h.name }} | State: {{ h.connection_state }} | Power: {{ h.power_state }}
+          {% endfor %}
+
+          --- Virtual Machines ({{ vm_info.virtual_machines | length }} total) ---
+          {% for vm in vm_info.virtual_machines %}
+          - {{ vm.vm_name }} | Power: {{ vm.power_state }}
+          {% endfor %}
+
+          --- Datastores ---
+          {% for ds in datastore_info.datastores %}
+          - {{ ds.name }} | {{ (ds.capacity / 1073741824) | round(2) }} GB total, {{ (ds.free_space / 1073741824) | round(2) }} GB free
+          {% endfor %}
+
+          --- Networks ---
+          {% for net in network_info.networks %}
+          - {{ net.name }} ({{ net.type }})
+          {% endfor %}
+
+    - name: Write report to file
+      ansible.builtin.copy:
+        content: "{{ summary_report }}"
+        dest: "./vcenter_report_{{ lookup('pipe', 'date +%Y%m%d_%H%M%S') }}.txt"
