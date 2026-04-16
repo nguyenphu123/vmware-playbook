@@ -4,13 +4,11 @@
 # Description: Gather information from vCenter using the
 #              vmware.vmware certified collection on AAP.
 # ============================================================
-
 - name: Gather vCenter Information
   hosts: localhost
   gather_facts: false
   collections:
     - vmware.vmware
-
   vars:
     vcenter_hostname: "{{ vcenter_hostname }}"
     vcenter_username: "{{ vcenter_username }}"
@@ -18,7 +16,6 @@
     vcenter_validate_certs: "{{ vcenter_validate_certs | default(false) }}"
 
   tasks:
-
     # -------------------------------------------------------
     # 1. vCenter license info
     # -------------------------------------------------------
@@ -33,6 +30,21 @@
     - name: Display license info
       ansible.builtin.debug:
         var: license_info
+
+    # -------------------------------------------------------
+    # NEW: vCenter Appliance system info (what you originally wanted)
+    # -------------------------------------------------------
+    - name: Get vCenter appliance system info
+      vmware.vmware.appliance_info:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ vcenter_validate_certs }}"
+      register: appliance_info
+
+    - name: Display appliance info
+      ansible.builtin.debug:
+        var: appliance_info
 
     # -------------------------------------------------------
     # 2. VMs grouped by cluster and folder
@@ -99,12 +111,13 @@
         var: content_library_info
 
     # -------------------------------------------------------
-    # 6. Print summary
+    # 6. Print summary (improved a bit)
     # -------------------------------------------------------
     - name: Print vCenter summary
       ansible.builtin.debug:
         msg:
           - "=== vCenter Summary ==="
-          - "Host      : {{ vcenter_hostname }}"
-          - "Licenses  : {{ license_info.license_keys | default([]) | length }} key(s) found"
-          - "Libraries : {{ content_library_info.libraries | default([]) | length }} library(s) found"
+          - "Host           : {{ vcenter_hostname }}"
+          - "Licenses       : {{ license_info.license_keys | default([]) | length }} key(s) found"
+          - "Appliance Info : {{ appliance_info | json_query('appliance_info[*].version') | default('N/A') }}"
+          - "Libraries      : {{ content_library_info.libraries | default([]) | length }} library(s) found"
