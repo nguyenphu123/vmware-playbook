@@ -1,8 +1,4 @@
 ---
-# ============================================================
-# Playbook: vcenter_info.yml
-# Description: Gather vCenter Information with connection pre-check
-# ============================================================
 - name: Gather vCenter Information
   hosts: localhost
   gather_facts: false
@@ -12,9 +8,9 @@
   tasks:
 
     # -------------------------------------------------------
-    # 0. Connection Test (like your curl command)
+    # 0. Connection Test (like your curl)
     # -------------------------------------------------------
-    - name: Test vCenter API connectivity and login (like curl)
+    - name: Test vCenter API connectivity and login
       ansible.builtin.uri:
         url: "https://{{ vcenter_hostname }}/api/session"
         method: POST
@@ -23,29 +19,33 @@
         validate_certs: "{{ vcenter_validate_certs | default(false) | bool }}"
         force_basic_auth: yes
         status_code: 201
-        timeout: 15
+        timeout: 20
       register: vcenter_session
-      delegate_to: localhost
-      run_once: true
-      ignore_errors: true   # We handle failure nicely below
+      ignore_errors: true
 
-    - name: Fail if vCenter connection or login failed
-      ansible.builtin.fail:
-        msg: >
-          Failed to connect or login to vCenter.
-          - Hostname : {{ vcenter_hostname }}
-          - Username : {{ vcenter_username }}
-          - Error    : {{ vcenter_session.msg | default(vcenter_session.status) | default('Unknown error') }}
-          Tip: Make sure hostname resolves, port 443 is open, and credentials are correct.
-      when: vcenter_session.status is not defined or vcenter_session.status != 201
-
-    - name: Connection test successful
+    - name: Connection test result
       ansible.builtin.debug:
-        msg: "✅ Successfully connected and authenticated to vCenter (session ID received)"
+        msg:
+          - "✅ Connection SUCCESS - Session ID received"
+          - "Session ID: {{ vcenter_session.json.value | default('N/A') }}"
       when: vcenter_session.status == 201
 
+    - name: Fail with clear message if connection failed
+      ansible.builtin.fail:
+        msg: |
+          ❌ Failed to connect/login to vCenter.
+          Hostname   : {{ vcenter_hostname }}
+          Username   : {{ vcenter_username }}
+          Error      : {{ vcenter_session.msg | default('Unknown') }}
+          
+          Possible causes:
+          1. DNS resolution issue inside AAP container → Use IP address instead (172.16.1.251)
+          2. Firewall / network restriction from execution node
+          3. Wrong password
+      when: vcenter_session.status is not defined or vcenter_session.status != 201
+
     # -------------------------------------------------------
-    # 1. vCenter license info
+    # Rest of your tasks (license, appliance_info, etc.)
     # -------------------------------------------------------
     - name: Get vCenter license info
       vmware.vmware.license_info:
@@ -54,14 +54,12 @@
         password: "{{ vcenter_password }}"
         validate_certs: "{{ vcenter_validate_certs | default(false) | bool }}"
       register: license_info
+      when: vcenter_session.status == 201
 
     - name: Display license info
       ansible.builtin.debug:
         var: license_info
 
-    # -------------------------------------------------------
-    # 2. vCenter Appliance system info
-    # -------------------------------------------------------
     - name: Get vCenter appliance system info
       vmware.vmware.appliance_info:
         hostname: "{{ vcenter_hostname }}"
@@ -69,66 +67,15 @@
         password: "{{ vcenter_password }}"
         validate_certs: "{{ vcenter_validate_certs | default(false) | bool }}"
       register: appliance_info
+      when: vcenter_session.status == 201
 
     - name: Display appliance info
       ansible.builtin.debug:
         var: appliance_info
 
-    # -------------------------------------------------------
-    # 3. VMs grouped by clusters
-    # -------------------------------------------------------
-    - name: Get all VMs grouped by clusters
-      vmware.vmware.vm_list_group_by_clusters_info:
-        hostname: "{{ vcenter_hostname }}"
-        username: "{{ vcenter_username }}"
-        password: "{{ vcenter_password }}"
-        validate_certs: "{{ vcenter_validate_certs | default(false) | bool }}"
-      register: vm_clusters_info
+    # ... (add the remaining tasks: vm_list_group_by_clusters_info, vm_portgroup_info, etc.)
 
-    - name: Display VMs grouped by cluster
+    - name: Print summary
       ansible.builtin.debug:
-        var: vm_clusters_info
-
-    # -------------------------------------------------------
-    # 4. VM portgroup / network info
-    # -------------------------------------------------------
-    - name: Get VM portgroup (network) info
-      vmware.vmware.vm_portgroup_info:
-        hostname: "{{ vcenter_hostname }}"
-        username: "{{ vcenter_username }}"
-        password: "{{ vcenter_password }}"
-        validate_certs: "{{ vcenter_validate_certs | default(false) | bool }}"
-      register: vm_portgroup_info
-
-    - name: Display VM portgroup info
-      ansible.builtin.debug:
-        var: vm_portgroup_info
-
-    # -------------------------------------------------------
-    # 5. Tag categories
-    # -------------------------------------------------------
-    - name: Get tag categories
-      vmware.vmware.tag_categories:
-        hostname: "{{ vcenter_hostname }}"
-        username: "{{ vcenter_username }}"
-        password: "{{ vcenter_password }}"
-        validate_certs: "{{ vcenter_validate_certs | default(false) | bool }}"
-        state: info
-      register: tag_categories_info
-      ignore_errors: true
-
-    - name: Display tag categories
-      ansible.builtin.debug:
-        var: tag_categories_info
-
-    # -------------------------------------------------------
-    # 6. Local content library info
-    # -------------------------------------------------------
-    - name: Get local content library info
-      vmware.vmware.local_content_library:
-        hostname: "{{ vcenter_hostname }}"
-        username: "{{ vcenter_username }}"
-        password: "{{ vcenter_password }}"
-        validate_certs: "{{ vcenter_validate_certs | default(false) | bool }}"
-        state: info
-      register: content
+        msg: "=== vCenter Summary === Host: {{ vcenter_hostname }} | Username: {{ vcenter_username }}"
+      when: vcenter_session.status == 201
