@@ -1,7 +1,7 @@
 ---
 # ============================================================
 # Playbook: vcenter_info.yml
-# Description: Gather information from vCenter using vmware.vmware collection
+# Description: Gather vCenter Information with connection pre-check
 # ============================================================
 - name: Gather vCenter Information
   hosts: localhost
@@ -9,10 +9,40 @@
   collections:
     - vmware.vmware
 
-  # Do NOT define vcenter_ variables here with {{ vcenter_... }}
-  # Pass them via --extra-vars or environment variables instead
-
   tasks:
+
+    # -------------------------------------------------------
+    # 0. Connection Test (like your curl command)
+    # -------------------------------------------------------
+    - name: Test vCenter API connectivity and login (like curl)
+      ansible.builtin.uri:
+        url: "https://{{ vcenter_hostname }}/api/session"
+        method: POST
+        user: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: "{{ vcenter_validate_certs | default(false) | bool }}"
+        force_basic_auth: yes
+        status_code: 201
+        timeout: 15
+      register: vcenter_session
+      delegate_to: localhost
+      run_once: true
+      ignore_errors: true   # We handle failure nicely below
+
+    - name: Fail if vCenter connection or login failed
+      ansible.builtin.fail:
+        msg: >
+          Failed to connect or login to vCenter.
+          - Hostname : {{ vcenter_hostname }}
+          - Username : {{ vcenter_username }}
+          - Error    : {{ vcenter_session.msg | default(vcenter_session.status) | default('Unknown error') }}
+          Tip: Make sure hostname resolves, port 443 is open, and credentials are correct.
+      when: vcenter_session.status is not defined or vcenter_session.status != 201
+
+    - name: Connection test successful
+      ansible.builtin.debug:
+        msg: "✅ Successfully connected and authenticated to vCenter (session ID received)"
+      when: vcenter_session.status == 201
 
     # -------------------------------------------------------
     # 1. vCenter license info
@@ -24,7 +54,6 @@
         password: "{{ vcenter_password }}"
         validate_certs: "{{ vcenter_validate_certs | default(false) | bool }}"
       register: license_info
-      when: vcenter_hostname is defined and vcenter_username is defined and vcenter_password is defined
 
     - name: Display license info
       ansible.builtin.debug:
@@ -40,7 +69,6 @@
         password: "{{ vcenter_password }}"
         validate_certs: "{{ vcenter_validate_certs | default(false) | bool }}"
       register: appliance_info
-      when: vcenter_hostname is defined and vcenter_username is defined and vcenter_password is defined
 
     - name: Display appliance info
       ansible.builtin.debug:
@@ -56,7 +84,6 @@
         password: "{{ vcenter_password }}"
         validate_certs: "{{ vcenter_validate_certs | default(false) | bool }}"
       register: vm_clusters_info
-      when: vcenter_hostname is defined and vcenter_username is defined and vcenter_password is defined
 
     - name: Display VMs grouped by cluster
       ansible.builtin.debug:
@@ -72,14 +99,13 @@
         password: "{{ vcenter_password }}"
         validate_certs: "{{ vcenter_validate_certs | default(false) | bool }}"
       register: vm_portgroup_info
-      when: vcenter_hostname is defined and vcenter_username is defined and vcenter_password is defined
 
     - name: Display VM portgroup info
       ansible.builtin.debug:
         var: vm_portgroup_info
 
     # -------------------------------------------------------
-    # 5. Tag categories (with ignore_errors as before)
+    # 5. Tag categories
     # -------------------------------------------------------
     - name: Get tag categories
       vmware.vmware.tag_categories:
@@ -90,7 +116,6 @@
         state: info
       register: tag_categories_info
       ignore_errors: true
-      when: vcenter_hostname is defined and vcenter_username is defined and vcenter_password is defined
 
     - name: Display tag categories
       ansible.builtin.debug:
@@ -106,22 +131,4 @@
         password: "{{ vcenter_password }}"
         validate_certs: "{{ vcenter_validate_certs | default(false) | bool }}"
         state: info
-      register: content_library_info
-      ignore_errors: true
-      when: vcenter_hostname is defined and vcenter_username is defined and vcenter_password is defined
-
-    - name: Display content library info
-      ansible.builtin.debug:
-        var: content_library_info
-
-    # -------------------------------------------------------
-    # 7. Summary
-    # -------------------------------------------------------
-    - name: Print vCenter summary
-      ansible.builtin.debug:
-        msg:
-          - "=== vCenter Summary ==="
-          - "Host      : {{ vcenter_hostname | default('Not provided') }}"
-          - "Licenses  : {{ license_info.licenses | default([]) | length }} key(s)"
-          - "Appliance : {{ appliance_info.appliance_info | default('N/A') | json_query('[*].version') | default('N/A') }}"
-          - "Libraries : {{ content_library_info.libraries | default([]) | length }} library(s) found"
+      register: content
