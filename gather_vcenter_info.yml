@@ -1,21 +1,19 @@
 ---
 # ============================================================
 # Playbook: vcenter_info.yml
-# Description: Gather information from vCenter using the
-#              vmware.vmware certified collection on AAP.
+# Description: Gather information from vCenter using vmware.vmware collection
 # ============================================================
 - name: Gather vCenter Information
   hosts: localhost
   gather_facts: false
   collections:
     - vmware.vmware
-  vars:
-    vcenter_hostname: "{{ vcenter_hostname }}"
-    vcenter_username: "{{ vcenter_username }}"
-    vcenter_password: "{{ vcenter_password }}"
-    vcenter_validate_certs: "{{ vcenter_validate_certs | default(false) }}"
+
+  # Do NOT define vcenter_ variables here with {{ vcenter_... }}
+  # Pass them via --extra-vars or environment variables instead
 
   tasks:
+
     # -------------------------------------------------------
     # 1. vCenter license info
     # -------------------------------------------------------
@@ -24,100 +22,106 @@
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
         password: "{{ vcenter_password }}"
-        validate_certs: "{{ vcenter_validate_certs }}"
+        validate_certs: "{{ vcenter_validate_certs | default(false) | bool }}"
       register: license_info
+      when: vcenter_hostname is defined and vcenter_username is defined and vcenter_password is defined
 
     - name: Display license info
       ansible.builtin.debug:
         var: license_info
 
     # -------------------------------------------------------
-    # NEW: vCenter Appliance system info (what you originally wanted)
+    # 2. vCenter Appliance system info
     # -------------------------------------------------------
     - name: Get vCenter appliance system info
       vmware.vmware.appliance_info:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
         password: "{{ vcenter_password }}"
-        validate_certs: "{{ vcenter_validate_certs }}"
+        validate_certs: "{{ vcenter_validate_certs | default(false) | bool }}"
       register: appliance_info
+      when: vcenter_hostname is defined and vcenter_username is defined and vcenter_password is defined
 
     - name: Display appliance info
       ansible.builtin.debug:
         var: appliance_info
 
     # -------------------------------------------------------
-    # 2. VMs grouped by cluster and folder
+    # 3. VMs grouped by clusters
     # -------------------------------------------------------
     - name: Get all VMs grouped by clusters
       vmware.vmware.vm_list_group_by_clusters_info:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
         password: "{{ vcenter_password }}"
-        validate_certs: "{{ vcenter_validate_certs }}"
+        validate_certs: "{{ vcenter_validate_certs | default(false) | bool }}"
       register: vm_clusters_info
+      when: vcenter_hostname is defined and vcenter_username is defined and vcenter_password is defined
 
     - name: Display VMs grouped by cluster
       ansible.builtin.debug:
         var: vm_clusters_info
 
     # -------------------------------------------------------
-    # 3. VM portgroup / network info
+    # 4. VM portgroup / network info
     # -------------------------------------------------------
     - name: Get VM portgroup (network) info
       vmware.vmware.vm_portgroup_info:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
         password: "{{ vcenter_password }}"
-        validate_certs: "{{ vcenter_validate_certs }}"
+        validate_certs: "{{ vcenter_validate_certs | default(false) | bool }}"
       register: vm_portgroup_info
+      when: vcenter_hostname is defined and vcenter_username is defined and vcenter_password is defined
 
     - name: Display VM portgroup info
       ansible.builtin.debug:
         var: vm_portgroup_info
 
     # -------------------------------------------------------
-    # 4. Tag categories
+    # 5. Tag categories (with ignore_errors as before)
     # -------------------------------------------------------
     - name: Get tag categories
       vmware.vmware.tag_categories:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
         password: "{{ vcenter_password }}"
-        validate_certs: "{{ vcenter_validate_certs }}"
+        validate_certs: "{{ vcenter_validate_certs | default(false) | bool }}"
         state: info
       register: tag_categories_info
       ignore_errors: true
+      when: vcenter_hostname is defined and vcenter_username is defined and vcenter_password is defined
 
     - name: Display tag categories
       ansible.builtin.debug:
         var: tag_categories_info
 
     # -------------------------------------------------------
-    # 5. Local content library info
+    # 6. Local content library info
     # -------------------------------------------------------
     - name: Get local content library info
       vmware.vmware.local_content_library:
         hostname: "{{ vcenter_hostname }}"
         username: "{{ vcenter_username }}"
         password: "{{ vcenter_password }}"
-        validate_certs: "{{ vcenter_validate_certs }}"
+        validate_certs: "{{ vcenter_validate_certs | default(false) | bool }}"
         state: info
       register: content_library_info
       ignore_errors: true
+      when: vcenter_hostname is defined and vcenter_username is defined and vcenter_password is defined
 
     - name: Display content library info
       ansible.builtin.debug:
         var: content_library_info
 
     # -------------------------------------------------------
-    # 6. Print summary (improved a bit)
+    # 7. Summary
     # -------------------------------------------------------
     - name: Print vCenter summary
       ansible.builtin.debug:
         msg:
           - "=== vCenter Summary ==="
-          - "Host           : {{ vcenter_hostname }}"
-          - "Licenses       : {{ license_info.license_keys | default([]) | length }} key(s) found"
-          - "Appliance Info : {{ appliance_info | json_query('appliance_info[*].version') | default('N/A') }}"
-          - "Libraries      : {{ content_library_info.libraries | default([]) | length }} library(s) found"
+          - "Host      : {{ vcenter_hostname | default('Not provided') }}"
+          - "Licenses  : {{ license_info.licenses | default([]) | length }} key(s)"
+          - "Appliance : {{ appliance_info.appliance_info | default('N/A') | json_query('[*].version') | default('N/A') }}"
+          - "Libraries : {{ content_library_info.libraries | default([]) | length }} library(s) found"
