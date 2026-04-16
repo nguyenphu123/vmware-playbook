@@ -8,7 +8,7 @@
   tasks:
 
     # -------------------------------------------------------
-    # 0. Connection Test (like your curl)
+    # 0. Connection Test (like your successful curl)
     # -------------------------------------------------------
     - name: Test vCenter API connectivity and login
       ansible.builtin.uri:
@@ -23,29 +23,18 @@
       register: vcenter_session
       ignore_errors: true
 
-    - name: Connection test result
+    - name: Connection test successful
       ansible.builtin.debug:
-        msg:
-          - "✅ Connection SUCCESS - Session ID received"
-          - "Session ID: {{ vcenter_session.json.value | default('N/A') }}"
+        msg: "✅ Successfully authenticated to vCenter"
       when: vcenter_session.status == 201
 
-    - name: Fail with clear message if connection failed
+    - name: Fail if connection/login failed
       ansible.builtin.fail:
-        msg: |
-          ❌ Failed to connect/login to vCenter.
-          Hostname   : {{ vcenter_hostname }}
-          Username   : {{ vcenter_username }}
-          Error      : {{ vcenter_session.msg | default('Unknown') }}
-          
-          Possible causes:
-          1. DNS resolution issue inside AAP container → Use IP address instead (172.16.1.251)
-          2. Firewall / network restriction from execution node
-          3. Wrong password
+        msg: "❌ Connection or login failed. Check hostname, credentials, and network."
       when: vcenter_session.status is not defined or vcenter_session.status != 201
 
     # -------------------------------------------------------
-    # Rest of your tasks (license, appliance_info, etc.)
+    # 1. License info (requires Global.Licenses privilege)
     # -------------------------------------------------------
     - name: Get vCenter license info
       vmware.vmware.license_info:
@@ -54,12 +43,16 @@
         password: "{{ vcenter_password }}"
         validate_certs: "{{ vcenter_validate_certs | default(false) | bool }}"
       register: license_info
-      when: vcenter_session.status == 201
+      ignore_errors: true
 
-    - name: Display license info
+    - name: Display license info (or permission warning)
       ansible.builtin.debug:
-        var: license_info
+        msg: "License info: {{ license_info.msg | default(license_info.licenses | default('Permission denied - Global.Licenses required')) }}"
+      when: license_info is defined
 
+    # -------------------------------------------------------
+    # 2. vCenter Appliance system info (this should work)
+    # -------------------------------------------------------
     - name: Get vCenter appliance system info
       vmware.vmware.appliance_info:
         hostname: "{{ vcenter_hostname }}"
@@ -67,15 +60,18 @@
         password: "{{ vcenter_password }}"
         validate_certs: "{{ vcenter_validate_certs | default(false) | bool }}"
       register: appliance_info
-      when: vcenter_session.status == 201
 
     - name: Display appliance info
       ansible.builtin.debug:
         var: appliance_info
 
-    # ... (add the remaining tasks: vm_list_group_by_clusters_info, vm_portgroup_info, etc.)
+    # Add the rest of your tasks here (vm_list_group_by_clusters_info, vm_portgroup_info, etc.)
+    # For now, I'll stop at appliance_info. Let me know if you want the full version.
 
     - name: Print summary
       ansible.builtin.debug:
-        msg: "=== vCenter Summary === Host: {{ vcenter_hostname }} | Username: {{ vcenter_username }}"
-      when: vcenter_session.status == 201
+        msg:
+          - "=== vCenter Summary ==="
+          - "Host      : {{ vcenter_hostname }}"
+          - "Username  : {{ vcenter_username }}"
+          - "Appliance : {{ appliance_info.appliance_info | default('N/A') | json_query('[*].version') | default('N/A') }}"
